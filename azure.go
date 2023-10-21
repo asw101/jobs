@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/keyvault/azsecrets"
@@ -226,6 +227,69 @@ func (Azure) Postgres(resourceGroup string) error {
 	fmt.Printf("export PGUSER=%s\n", username)
 	fmt.Printf("export PGPASSWORD='%s'\n", token)
 	return nil
+}
+
+// PostgresFirewall updates the DefaultAllowRule of the
+// database to allow the current client's IP address
+func (Azure) PostgresFirewall(resourceGroup string) error {
+	cmd := []string{
+		"az",
+		"postgres",
+		"flexible-server",
+		"list",
+		"--resource-group",
+		resourceGroup,
+		"--query",
+		"[0].name",
+		"--out",
+		"tsv",
+	}
+
+	name, err := sh.Output(cmd[0], cmd[1:]...)
+	if err != nil {
+		return err
+	}
+
+	ipAddress, err := whoAmI()
+	if err != nil {
+		return err
+	}
+
+	cmd = []string{
+		"az",
+		"postgres",
+		"flexible-server",
+		"firewall-rule",
+		"create",
+		"--resource-group",
+		resourceGroup,
+		"--name",
+		name,
+		"--rule-name",
+		"DefaultAllowRule",
+		"--start-ip-address",
+		ipAddress,
+	}
+	return sh.RunV(cmd[0], cmd[1:]...)
+}
+
+// whoAmI returns our public IP, currently shelling out to dig
+func whoAmI() (string, error) {
+	// todo: this throws an error
+	// dig @1.1.1.1 ch txt whoami.cloudflare +short
+	// todo: this returns the wrong ip address
+	// dig whoami.akamai.net. @ns1-1.akamaitech.net. +short
+	res, err := sh.Output(
+		"dig",
+		"whoami.akamai.net.",
+		"@ns1-1.akamaitech.net.",
+		"+short",
+	)
+	if err != nil {
+		return "", err
+	}
+	res = strings.ReplaceAll(res, "\"", "")
+	return res, nil
 }
 
 func getToken() (string, error) {
